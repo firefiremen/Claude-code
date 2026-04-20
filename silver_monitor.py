@@ -3,12 +3,18 @@ import urllib.request
 import ssl
 import json
 import time
+import smtplib
+from email.mime.text import MIMEText
 from datetime import datetime
 
 # ========== 配置 ==========
 TARGET_HIGH = 80.0        # 上方目标价（涨到提醒）
 TARGET_LOW  = 79.0        # 下方目标价（跌到提醒）
 CHECK_INTERVAL = 60       # 检测间隔（秒）
+
+EMAIL_SENDER   = "81520984@qq.com"
+EMAIL_PASSWORD = "advkfpefzmcvcbeb"
+EMAIL_RECEIVER = "81520984@qq.com"
 # ==========================
 
 def fetch_silver_price():
@@ -25,6 +31,25 @@ def fetch_silver_price():
             if attempt < 2:
                 time.sleep(5)
     raise Exception("gold-api.com 连续3次失败")
+
+def send_email(price, direction):
+    if direction == "up":
+        subject = "银价突破上方目标！"
+        body = f"银价已突破 ↑{TARGET_HIGH} USD\n\n当前价：{price:.3f} USD\n时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    else:
+        subject = "银价跌破下方目标！"
+        body = f"银价已跌破 ↓{TARGET_LOW} USD\n\n当前价：{price:.3f} USD\n时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    try:
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"] = EMAIL_SENDER
+        msg["To"] = EMAIL_RECEIVER
+        with smtplib.SMTP_SSL("smtp.qq.com", 465) as server:
+            server.login(EMAIL_SENDER, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_SENDER, EMAIL_RECEIVER, msg.as_string())
+        print(f">>> 邮件已发送至 {EMAIL_RECEIVER}")
+    except Exception as e:
+        print(f">>> 邮件发送失败：{e}")
 
 def show_alert(price, direction):
     if direction == "up":
@@ -53,11 +78,13 @@ while True:
 
         if price >= TARGET_HIGH and not alerted_high:
             show_alert(price, "up")
+            send_email(price, "up")
             alerted_high = True
             print(">>> 上方目标触发！")
 
         if price <= TARGET_LOW and not alerted_low:
             show_alert(price, "down")
+            send_email(price, "down")
             alerted_low = True
             print(">>> 下方目标触发！")
 

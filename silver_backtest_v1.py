@@ -7,6 +7,7 @@ Silver (XAG/USD) 回测 - v1
 
 import yfinance as yf
 import pandas as pd
+#测试
 
 # ── 参数 ──────────────────────────────────────────────
 TICKER       = "SI=F"      # 银期货（与伦敦银走势一致）

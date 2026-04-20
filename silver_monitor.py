@@ -12,9 +12,7 @@ TARGET_HIGH = 80.0        # 上方目标价（涨到提醒）
 TARGET_LOW  = 79.0        # 下方目标价（跌到提醒）
 CHECK_INTERVAL = 60       # 检测间隔（秒）
 
-EMAIL_SENDER   = "81520984@qq.com"
-EMAIL_PASSWORD = "advkfpefzmcvcbeb"
-EMAIL_RECEIVER = "81520984@qq.com"
+from config import EMAIL_SENDER, EMAIL_PASSWORD, EMAIL_RECEIVER
 # ==========================
 
 def fetch_silver_price():

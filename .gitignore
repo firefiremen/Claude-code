@@ -1,4 +1,6 @@
 config.py
+.venv/
+generated/
 __pycache__/
 *.pyc
 *.csv

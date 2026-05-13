@@ -251,6 +251,69 @@ def top_n(d, n=TOP_LABELS):
     return sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:n]
 
 
+def fmt_wall(items):
+    if not items:
+        return "none"
+    return ", ".join(f"{k:g}({int(v):,})" for k, v in items)
+
+
+def nearest_wall(spot, oi_map, direction):
+    if not oi_map:
+        return None
+    heavy_threshold = max(oi_map.values()) * 0.25
+    oi_items = [(k, v) for k, v in oi_map.items() if v >= heavy_threshold]
+    if direction == "above":
+        candidates = [(k, v) for k, v in oi_items if k >= spot]
+        return min(candidates, key=lambda kv: kv[0] - spot) if candidates else None
+    candidates = [(k, v) for k, v in oi_items if k <= spot]
+    return max(candidates, key=lambda kv: kv[0]) if candidates else None
+
+
+def wall_gap_pct(spot, strike):
+    if not spot:
+        return 0.0
+    return (strike / spot - 1) * 100
+
+
+def analyze_one(symbol, spot, call_oi, put_oi):
+    top_calls = top_n(call_oi)
+    top_puts = top_n(put_oi)
+    near_call = nearest_wall(spot, call_oi, "above")
+    near_put = nearest_wall(spot, put_oi, "below")
+    max_call = top_calls[0] if top_calls else None
+    max_put = top_puts[0] if top_puts else None
+
+    parts = [f"{symbol}: spot {spot:.2f}."]
+    if near_call:
+        gap = wall_gap_pct(spot, near_call[0])
+        parts.append(f"最近上方 Call 墙 {near_call[0]:g}（{gap:+.1f}%）。")
+    if near_put:
+        gap = wall_gap_pct(spot, near_put[0])
+        parts.append(f"最近下方 Put 墙 {near_put[0]:g}（{gap:+.1f}%）。")
+
+    if near_call and abs(wall_gap_pct(spot, near_call[0])) <= 1.0:
+        view = f"正在贴近 {near_call[0]:g} 上方压力，突破并站稳才算继续转强。"
+    elif near_put and abs(wall_gap_pct(spot, near_put[0])) <= 1.5:
+        view = f"正在测试 {near_put[0]:g} 下方支撑，失守后结构会转弱。"
+    elif near_call and near_put:
+        view = f"处在 {near_put[0]:g}-{near_call[0]:g} 区间内，先按区间震荡看。"
+    elif max_call and spot < max_call[0]:
+        view = f"上方主要压力在 {max_call[0]:g}。"
+    elif max_put and spot > max_put[0]:
+        view = f"下方主要支撑在 {max_put[0]:g}。"
+    else:
+        view = "OI 分布暂时没有给出很近的强压力/支撑。"
+    parts.append(view)
+
+    if max_call and max_put:
+        if spot > max_call[0] and spot > max_put[0]:
+            parts.append("价格已经在主要 OI 锚上方，结构偏强但要防追高回踩。")
+        elif spot < max_call[0] and spot < max_put[0]:
+            parts.append("价格在主要 OI 锚下方，结构偏弱或仍在修复。")
+
+    return " ".join(parts)
+
+
 def plot_one(ax, symbol, spot, call_oi, put_oi, source_name):
     all_strikes = sorted(set(call_oi) | set(put_oi))
     if not all_strikes:
@@ -288,21 +351,24 @@ def build_report(tickers=None, source=DATA_SOURCE):
     fig, axes = plt.subplots(nrows, ncols, figsize=(16, 5 * nrows))
     axes_flat = axes.flat if hasattr(axes, "flat") else [axes]
     summary_lines = []
+    analysis_lines = []
 
     for ax, sym in zip(axes_flat, tickers):
         try:
             spot, call_oi, put_oi, source_name = fetch_oi(sym, source)
             plot_one(ax, sym, spot, call_oi, put_oi, source_name)
-            top_c = ", ".join(f"{k:g}({int(v):,})" for k, v in top_n(call_oi))
-            top_p = ", ".join(f"{k:g}({int(v):,})" for k, v in top_n(put_oi))
+            top_c = fmt_wall(top_n(call_oi))
+            top_p = fmt_wall(top_n(put_oi))
             summary_lines.append(
                 f"{sym}  spot={spot:.2f}  source={source_name}\n"
                 f"  Call OI 墙: {top_c}\n  Put  OI 墙: {top_p}"
             )
+            analysis_lines.append(analyze_one(sym, spot, call_oi, put_oi))
         except Exception as e:
             ax.text(0.5, 0.5, f"{sym} ERROR\n{e}", ha="center",
                     transform=ax.transAxes, color="red")
             summary_lines.append(f"{sym}: failed - {e}")
+            analysis_lines.append(f"{sym}: 数据拉取失败，暂不分析。")
             traceback.print_exc()
         time.sleep(REQUEST_GAP)
 
@@ -317,7 +383,15 @@ def build_report(tickers=None, source=DATA_SOURCE):
     fig.savefig(buf, format="png", dpi=110, bbox_inches="tight")
     plt.close(fig)
     buf.seek(0)
-    return buf, "\n\n".join(summary_lines)
+    report_text = (
+        "OI 墙摘要\n"
+        "==========\n"
+        + "\n\n".join(summary_lines)
+        + "\n\n自动分析\n"
+        "==========\n"
+        + "\n".join(f"- {line}" for line in analysis_lines)
+    )
+    return buf, report_text
 
 
 def send_email(image_buf, summary_text):
